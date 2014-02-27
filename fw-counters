@@ -1,0 +1,12 @@
+#!/bin/bash
+
+iptables --line-numbers -n -v -L |grep -E "^[0-9]+[ \t]+[1-9][0-9KM]+" > t1
+while true
+do
+	sleep 5
+	iptables --line-numbers -n -v -L |grep -E "^[0-9]+[ \t]+[1-9][0-9KM]+" > t2
+  echo "Comparing last 5 seconds"
+	diff --line-format "%>%L" t1 t2
+  mv t2 t1
+done
+rm t1 t2

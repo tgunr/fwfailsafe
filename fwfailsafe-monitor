@@ -1,0 +1,97 @@
+#!/bin/bash
+# fwfailsafe-monitor - Reset firewall if watchdog file fails to update
+# ---------------------------------------------------------------------------------------------------------------
+# Added support for IPV6 Firewall
+# ---------------------------------------------------------------------------------------------------------------
+# Written by Vivek Gite <vivek@nixcraft.com>
+# ---------------------------------------------------------------------------------------------------------------
+# Modified by Dave Carlton <davec@polymicro.net> to use watchdog file
+# https://gist.github.com/tgunr/5139101
+#
+# You can copy / paste / redistribute this script under GPL version 2.0 or above
+# =============================================================
+
+# set this to where ever you want to watch
+WATCHDOG=/root/watchdog
+WAIT_TIME=120 # wait 2 minutes
+
+# On the remote machine startup watchdog task like so
+# while true; do ssh goliath.root 'date +%s > /root/watchdog'; sleep 30; done
+# This will update time on file being watched, if you stop updating it, then
+# WAIT_TIME later this script will reset firewall
+#
+# Put this script into a cron job and fire it off once a minute
+# 
+# Next, remove watchdog.reset if it exists, otherwise script assumes iptabples have already be reset
+
+# set to true if it is CentOS / RHEL / Fedora box
+RHEL=true
+
+if [ $# > 0 ] ; then
+	if [ "$1" == start ] ; then
+		if [ -e $WATCHDOG.reset ] ; then
+			rm $WATCHDOG.reset
+		fi
+	fi
+	if [[ "$1" == "help" || "$1" == "-h" || "$1" == "--help" ]] ; then
+		echo 'On this machine execute crontab -e as root and enable the watchdog timer with following line:'
+		echo '*/2 * * * * /root/bin/fwfailsafe-monitor  #Reset firewall in case of goof while testing rules, enable this while testing.'
+		echo
+		echo 'On local machine execute:'
+		echo 'while true; do ssh remote.update.com ''date +%s > /root/watchdog''; sleep 30; done'
+		exit 0
+	fi
+fi
+
+### no need to edit below  ###
+IPT=/sbin/iptables
+IPT6=/sbin/ip6tables
+
+if [ -e $WATCHDOG ] ; then
+	WD_MOD_TIME=$(date -r $WATCHDOG +%s)
+	let RESET_TIME=$[$WD_MOD_TIME + $WAIT_TIME]
+	let NOW=$(date +%s)
+	if test $NOW -gt $RESET_TIME ; then
+		if [ "$RHEL" == "true" ];
+		then
+			if ! [ -e $WATCHDOG.reset ] ; then
+				logger "Resetting firewall"
+				/root/bin/fwfailsafe-disable
+				# create a semaphore, no further resets if this file eists
+				touch $WATCHDOG.reset
+			fi
+		else
+			# for all other Linux distro use following rules to reset firewall
+			### reset ipv4 iptales ###
+			$IPT -F
+			$IPT -X
+			$IPT -Z
+			for table in $(</proc/net/ip_tables_names)
+			do
+				$IPT -t $table -F
+				$IPT -t $table -X
+				$IPT -t $table -Z
+			done
+			$IPT -P INPUT ACCEPT
+			$IPT -P OUTPUT ACCEPT
+			$IPT -P FORWARD ACCEPT
+			### reset ipv6 iptales ###
+			$IPT6 -F
+			$IPT6 -X
+			$IPT6 -Z
+			for table in $(</proc/net/ip6_tables_names)
+			do
+				$IPT6 -t $table -F
+				$IPT6 -t $table -X
+				$IPT6 -t $table -Z
+			done
+			$IPT6 -P INPUT ACCEPT
+			$IPT6 -P OUTPUT ACCEPT
+			$IPT6 -P FORWARD ACCEPT
+		fi
+	else
+		logger "Checking firewall failsafe"
+		echo "Checking firewall failsafe"
+    	:
+	fi
+fi
